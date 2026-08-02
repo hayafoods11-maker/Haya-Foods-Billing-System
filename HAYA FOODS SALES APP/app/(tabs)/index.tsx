@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Plus,
   LogOut,
+  Package,
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
