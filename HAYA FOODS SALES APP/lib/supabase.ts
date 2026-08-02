@@ -13,8 +13,10 @@ export const supabase = createClient(
   (supabaseAnonKey as string) ?? 'placeholder-anon-key',
   {
     auth: {
-      persistSession: true,
-      autoRefreshToken: true,
+      // Billing access is deliberately limited to the current browser session.
+      // Refreshing or reopening the app requires the staff member to sign in again.
+      persistSession: false,
+      autoRefreshToken: false,
       detectSessionInUrl: false,
     },
   }
