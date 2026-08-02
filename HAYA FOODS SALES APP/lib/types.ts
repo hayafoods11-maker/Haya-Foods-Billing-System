@@ -239,6 +239,7 @@ export interface PurchaseEntry {
   quantity: number;
   unit_cost: number;
   total_cost: number;
+  reference: string | null;
   received_by: string | null;
   notes: string | null;
   created_at: string;
