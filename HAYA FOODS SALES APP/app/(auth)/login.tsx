@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -16,7 +17,8 @@ import { theme } from '@/lib/theme';
 import { Button, ErrorBox } from '@/components/ui';
 
 export default function LoginScreen() {
-  const { signIn, signUp, configError } = useAuth();
+  const { signIn, signUp, configError, session, staff } = useAuth();
+  const router = useRouter();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,6 +39,14 @@ export default function LoginScreen() {
         }
       });
   }, []);
+
+  // Authentication and the staff profile are loaded separately. Navigate only
+  // after both are ready so the tabs do not briefly redirect back to login.
+  useEffect(() => {
+    if (session && staff) {
+      router.replace('/(tabs)');
+    }
+  }, [router, session, staff]);
 
   const submit = async () => {
     setError(null);
