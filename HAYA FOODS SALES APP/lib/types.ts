@@ -107,6 +107,20 @@ export interface InventoryTransaction {
   created_at: string;
 }
 
+export interface InventoryBatch {
+  id: string;
+  product_id: string;
+  batch_number: string;
+  manufacturing_date: string | null;
+  expiry_date: string | null;
+  quantity_received: number;
+  quantity_available: number;
+  unit_cost: number;
+  reference: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface OrderItem {
   id: string;
   order_id: string;

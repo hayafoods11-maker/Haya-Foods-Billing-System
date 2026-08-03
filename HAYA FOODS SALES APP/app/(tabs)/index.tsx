@@ -12,6 +12,8 @@ import {
   Plus,
   LogOut,
   Package,
+  Users,
+  Receipt,
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
@@ -24,6 +26,12 @@ import { Screen, ScreenScroll, Card, Stat, SectionTitle, Empty, ErrorBox } from 
 export default function Dashboard() {
   const { staff, signOut } = useAuth();
   const [todaySales, setTodaySales] = useState(0);
+  const [monthlyRevenue, setMonthlyRevenue] = useState(0);
+  const [outstandingPayments, setOutstandingPayments] = useState(0);
+  const [totalCustomers, setTotalCustomers] = useState(0);
+  const [recentInvoices, setRecentInvoices] = useState<(Invoice & { customer?: { name: string } | null })[]>([]);
+  const [bestSellers, setBestSellers] = useState<{ name: string; quantity: number; total: number }[]>([]);
+  const [salesTrend, setSalesTrend] = useState<{ label: string; total: number }[]>([]);
   const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
   const [lowStock, setLowStock] = useState<Product[]>([]);
   const [unpaid, setUnpaid] = useState<Invoice[]>([]);
@@ -36,29 +44,35 @@ export default function Dashboard() {
     setError(null);
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+    const trendStart = new Date(todayStart);
+    trendStart.setDate(trendStart.getDate() - 6);
 
-    const [salesRes, ordersRes, productsRes, invoicesRes, delRes] = await Promise.all([
+    const [salesRes, monthSalesRes, ordersRes, productsRes, invoicesRes, recentRes, itemsRes, customersRes, delRes] = await Promise.all([
       supabase
         .from('invoices')
         .select('total, created_at')
         .gte('created_at', todayStart.toISOString()),
+      supabase.from('invoices').select('total, created_at').gte('created_at', monthStart.toISOString()),
       supabase
         .from('orders')
         .select('id, order_number, status, total, customer:customers(name), created_at')
         .in('status', ['pending', 'confirmed', 'packed', 'out_for_delivery'])
         .order('created_at', { ascending: false })
         .limit(8),
-      supabase.from('products').select('*').lt('stock', 12).order('stock', { ascending: true }).limit(6),
+      supabase.from('products').select('*').eq('active', true).order('stock', { ascending: true }).limit(100),
       supabase
         .from('invoices')
         .select('id, invoice_number, total, paid_amount, balance, payment_status, customer:customers(name), created_at')
         .in('payment_status', ['unpaid', 'partial'])
-        .order('created_at', { ascending: false })
-        .limit(6),
+        .order('created_at', { ascending: false }),
+      supabase.from('invoices').select('*, customer:customers(name)').order('created_at', { ascending: false }).limit(5),
+      supabase.from('invoice_items').select('name, quantity, line_total'),
+      supabase.from('customers').select('id', { count: 'exact', head: true }).eq('active', true),
       supabase.from('deliveries').select('id', { count: 'exact', head: true }).in('status', ['pending', 'out_for_delivery']),
     ]);
 
-    if (salesRes.error || ordersRes.error || productsRes.error || invoicesRes.error || delRes.error) {
+    if (salesRes.error || monthSalesRes.error || ordersRes.error || productsRes.error || invoicesRes.error || recentRes.error || itemsRes.error || customersRes.error || delRes.error) {
       setError('Could not load dashboard data. Pull to refresh.');
       setLoading(false);
       setRefreshing(false);
@@ -66,10 +80,30 @@ export default function Dashboard() {
     }
 
     const sales = (salesRes.data as { total: number }[]).reduce((s, i) => s + Number(i.total), 0);
+    const monthlySales = (monthSalesRes.data as { total: number }[]).reduce((s, i) => s + Number(i.total), 0);
+    const totalsByProduct = new Map<string, { quantity: number; total: number }>();
+    (itemsRes.data as { name: string; quantity: number; line_total: number }[] ?? []).forEach((item) => {
+      const current = totalsByProduct.get(item.name) ?? { quantity: 0, total: 0 };
+      totalsByProduct.set(item.name, { quantity: current.quantity + Number(item.quantity), total: current.total + Number(item.line_total) });
+    });
+    const dayTotals = new Map<string, number>();
+    (monthSalesRes.data as { total: number; created_at: string }[]).forEach((item) => {
+      const day = new Date(item.created_at).toDateString();
+      if (new Date(item.created_at) >= trendStart) dayTotals.set(day, (dayTotals.get(day) ?? 0) + Number(item.total));
+    });
     setTodaySales(sales);
+    setMonthlyRevenue(monthlySales);
+    setOutstandingPayments(((invoicesRes.data as unknown as Pick<Invoice, 'balance'>[]) ?? []).reduce((sum, inv) => sum + Number(inv.balance), 0));
+    setTotalCustomers(customersRes.count ?? 0);
     setPendingOrders((ordersRes.data as unknown as Order[]) ?? []);
-    setLowStock((productsRes.data as Product[]) ?? []);
+    setLowStock(((productsRes.data as Product[]) ?? []).filter((product) => product.stock <= product.reorder_level).slice(0, 6));
     setUnpaid((invoicesRes.data as unknown as Invoice[]) ?? []);
+    setRecentInvoices((recentRes.data as unknown as typeof recentInvoices) ?? []);
+    setBestSellers([...totalsByProduct.entries()].map(([name, value]) => ({ name, ...value })).sort((a, b) => b.quantity - a.quantity).slice(0, 5));
+    setSalesTrend(Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(trendStart); date.setDate(trendStart.getDate() + index);
+      return { label: date.toLocaleDateString('en-GB', { weekday: 'short' }), total: dayTotals.get(date.toDateString()) ?? 0 };
+    }));
     setActiveDeliveries(delRes.count ?? 0);
     setLoading(false);
     setRefreshing(false);
@@ -89,13 +123,18 @@ export default function Dashboard() {
         {error && <View style={{ marginBottom: 12 }}><ErrorBox message={error} /></View>}
 
         <View style={styles.statsRow}>
-          <Stat label="Sales Today" value={formatLKR(todaySales)} tint={theme.colors.primary[700]} icon={<Wallet size={18} color={theme.colors.primary[700]} />} />
-          <Stat label="Active Deliveries" value={formatNumber(activeDeliveries)} tint={theme.colors.info} icon={<Truck size={18} color={theme.colors.info} />} />
+          <Stat label="Today's Sales" value={formatLKR(todaySales)} tint={theme.colors.primary[700]} icon={<Wallet size={18} color={theme.colors.primary[700]} />} />
+          <Stat label="Monthly Revenue" value={formatLKR(monthlyRevenue)} tint={theme.colors.info} icon={<TrendingUp size={18} color={theme.colors.info} />} />
         </View>
         <View style={styles.statsRow}>
-          <Stat label="Pending Orders" value={formatNumber(pendingOrders.length)} tint={theme.colors.warning} icon={<ShoppingBag size={18} color={theme.colors.warning} />} />
-          <Stat label="Low Stock Items" value={formatNumber(lowStock.length)} tint={theme.colors.error} icon={<AlertTriangle size={18} color={theme.colors.error} />} />
+          <Stat label="Outstanding" value={formatLKR(outstandingPayments)} tint={theme.colors.warning} icon={<Receipt size={18} color={theme.colors.warning} />} />
+          <Stat label="Customers" value={formatNumber(totalCustomers)} tint={theme.colors.primary[700]} icon={<Users size={18} color={theme.colors.primary[700]} />} />
         </View>
+
+        {!isDeliveryOnly && <View style={{ marginTop: 16 }}>
+          <SectionTitle>Sales: Last 7 Days</SectionTitle>
+          <SalesChart data={salesTrend} />
+        </View>}
 
         {!isDeliveryOnly && !isSales && (
           <View style={{ marginTop: 16 }}>
@@ -124,6 +163,24 @@ export default function Dashboard() {
             </View>
           )}
         </View>
+
+        {!isDeliveryOnly && <View style={{ marginTop: 16 }}>
+          <SectionTitle>Best Selling Products</SectionTitle>
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
+            {bestSellers.length === 0 ? <Empty title="No sales this month" subtitle="Top products will appear after sales are recorded." /> : bestSellers.map((product, index) => (
+              <View key={product.name} style={[styles.row, index > 0 && styles.rowBorder]}>
+                <View style={styles.rank}><Text style={styles.rankText}>{index + 1}</Text></View>
+                <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{product.name}</Text><Text style={styles.rowSub}>{product.quantity} units sold</Text></View>
+                <Text style={styles.rowAmount}>{formatLKR(product.total)}</Text>
+              </View>
+            ))}
+          </Card>
+        </View>}
+
+        {!isDeliveryOnly && <View style={{ marginTop: 16 }}>
+          <SectionTitle action={<ChevronLink onPress={() => router.push('/invoices')} />}>Recent Invoices</SectionTitle>
+          {recentInvoices.length === 0 ? <Empty title="No invoices yet" subtitle="Completed sales will appear here." /> : <View style={{ gap: 8 }}>{recentInvoices.map((invoice) => <InvoiceRow key={invoice.id} invoice={invoice} />)}</View>}
+        </View>}
 
         <View style={{ marginTop: 16 }}>
           <SectionTitle action={<ChevronLink onPress={() => router.push('/products')} />}>Low Stock Alerts</SectionTitle>
@@ -234,6 +291,26 @@ function InvoiceRow({ invoice }: { invoice: Invoice & { customer?: { name: strin
   );
 }
 
+function SalesChart({ data }: { data: { label: string; total: number }[] }) {
+  const max = Math.max(...data.map((point) => point.total), 1);
+  return (
+    <Card>
+      <View style={styles.chart}>
+        {data.map((point) => (
+          <View key={point.label} style={styles.barColumn}>
+            <Text style={styles.barValue}>{point.total > 0 ? formatLKR(point.total).replace('Rs ', 'Rs ') : ''}</Text>
+            <View style={styles.barTrack}>
+              <View style={[styles.bar, { height: `${Math.max(6, (point.total / max) * 100)}%` }]} />
+            </View>
+            <Text style={styles.barLabel}>{point.label}</Text>
+          </View>
+        ))}
+      </View>
+      <Text style={styles.chartCaption}>Daily invoice revenue</Text>
+    </Card>
+  );
+}
+
 const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
@@ -247,6 +324,16 @@ const styles = StyleSheet.create({
   rowAmount: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   stockChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   stockText: { fontSize: 12, fontWeight: '700' },
+  rowBorder: { borderTopWidth: 1, borderTopColor: theme.colors.border },
+  rank: { width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.primary[50], alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  rankText: { color: theme.colors.primary[700], fontWeight: '700', fontSize: 13 },
+  chart: { height: 150, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 },
+  barColumn: { flex: 1, height: '100%', alignItems: 'center', justifyContent: 'flex-end' },
+  barTrack: { width: '70%', height: 105, justifyContent: 'flex-end', borderRadius: 8, backgroundColor: theme.colors.primary[50], overflow: 'hidden' },
+  bar: { width: '100%', borderRadius: 8, backgroundColor: theme.colors.primary[700] },
+  barLabel: { fontSize: 11, color: theme.colors.textMuted, marginTop: 7 },
+  barValue: { fontSize: 9, color: theme.colors.textMuted, marginBottom: 4, textAlign: 'center' },
+  chartCaption: { fontSize: 12, color: theme.colors.textMuted, marginTop: 10 },
   signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 28, paddingVertical: 14, borderRadius: 12, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca' },
   signOutText: { color: theme.colors.error, fontSize: 15, fontWeight: '600' },
 });

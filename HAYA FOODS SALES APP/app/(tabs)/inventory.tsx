@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TextInput, Pressable, ScrollView, Modal } from 'react-native';
-import { Search, Plus, Archive, Truck, Box, DollarSign, X } from 'lucide-react-native';
+import { Search, Plus, Archive, DollarSign, X, SlidersHorizontal, TriangleAlert } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { theme } from '@/lib/theme';
@@ -27,6 +27,10 @@ export default function InventoryScreen() {
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [movementType, setMovementType] = useState<'receive' | 'adjustment' | 'damage'>('receive');
+  const [batchNumber, setBatchNumber] = useState('');
+  const [manufacturingDate, setManufacturingDate] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -62,12 +66,16 @@ export default function InventoryScreen() {
   const lowStock = products.filter((product) => product.stock <= product.reorder_level);
   const totalValue = products.reduce((sum, product) => sum + product.stock * product.cost_price, 0);
 
-  const openReceive = () => {
+  const openMovement = (type: 'receive' | 'adjustment' | 'damage' = 'receive') => {
+    setMovementType(type);
     setSelectedProduct(null);
     setQty('1');
     setUnitCost('0');
     setReference('');
     setNotes('');
+    setBatchNumber('');
+    setManufacturingDate('');
+    setExpiryDate('');
     setShowReceive(true);
   };
 
@@ -78,17 +86,36 @@ export default function InventoryScreen() {
     }
     const quantity = Number(qty);
     const unit = Number(unitCost);
-    if (!quantity || quantity <= 0) {
-      setError('Enter a valid quantity.');
+    if (!quantity || (movementType !== 'adjustment' && quantity <= 0)) {
+      setError(movementType === 'adjustment' ? 'Enter a non-zero adjustment quantity.' : 'Enter a valid quantity.');
       return;
     }
-    if (!unit || unit < 0) {
+    if (movementType === 'receive' && (!unit || unit < 0)) {
       setError('Enter a valid unit cost.');
       return;
     }
     setSaving(true);
     setError(null);
     const totalCost = quantity * unit;
+
+    if (movementType === 'receive' && !batchNumber.trim()) {
+      setError('Enter a batch number for this stock receipt.');
+      return;
+    }
+
+    if (movementType !== 'receive') {
+      const signedQuantity = movementType === 'damage' ? quantity : Number(qty);
+      const { error: txError } = await supabase.from('inventory_transactions').insert({
+        product_id: selectedProduct.id,
+        type: movementType === 'damage' ? 'wastage' : 'adjustment',
+        quantity: signedQuantity,
+        reference: reference.trim() || null,
+        notes: `${movementType === 'damage' ? 'Damaged stock' : 'Stock adjustment'}${notes.trim() ? `: ${notes.trim()}` : ''}`,
+        created_by: staff?.id ?? null,
+      });
+      if (txError) { setError('Could not record stock movement.'); setSaving(false); return; }
+      setShowReceive(false); setSaving(false); load(); return;
+    }
 
     const { error: purchaseError } = await supabase.from('purchase_entries').insert({
       product_id: selectedProduct.id,
@@ -121,6 +148,23 @@ export default function InventoryScreen() {
       return;
     }
 
+    const { error: batchError } = await supabase.from('inventory_batches').insert({
+      product_id: selectedProduct.id,
+      batch_number: batchNumber.trim(),
+      manufacturing_date: manufacturingDate.trim() || null,
+      expiry_date: expiryDate.trim() || null,
+      quantity_received: quantity,
+      quantity_available: quantity,
+      unit_cost: unit,
+      reference: reference.trim() || null,
+      created_by: staff?.id ?? null,
+    });
+    if (batchError) {
+      setError('Stock received, but the batch record could not be saved. Check the batch number and try again.');
+      setSaving(false);
+      return;
+    }
+
     setShowReceive(false);
     setSaving(false);
     load();
@@ -139,9 +183,15 @@ export default function InventoryScreen() {
         <View style={styles.searchWrap}>
           <Search size={18} color={theme.colors.textMuted} />
           <TextInput style={styles.search} placeholder="Search products or category…" value={query} onChangeText={setQuery} placeholderTextColor={theme.colors.textMuted} />
-          <Pressable onPress={openReceive} style={styles.addBtn}>
+          <Pressable onPress={() => openMovement('receive')} style={styles.addBtn}>
             <Plus size={20} color={theme.colors.white} />
           </Pressable>
+        </View>
+
+        <View style={styles.actionRow}>
+          <Pressable onPress={() => openMovement('receive')} style={styles.actionButton}><Plus size={17} color={theme.colors.primary[700]} /><Text style={styles.actionText}>Receive stock</Text></Pressable>
+          <Pressable onPress={() => openMovement('adjustment')} style={styles.actionButton}><SlidersHorizontal size={17} color={theme.colors.info} /><Text style={styles.actionText}>Adjust stock</Text></Pressable>
+          <Pressable onPress={() => openMovement('damage')} style={styles.actionButton}><TriangleAlert size={17} color={theme.colors.error} /><Text style={styles.actionText}>Record damage</Text></Pressable>
         </View>
 
         <Text style={styles.sectionTitle}>Low Stock Alerts</Text>
@@ -192,7 +242,7 @@ export default function InventoryScreen() {
         <View style={styles.modalOverlay}>
           <Card style={styles.receiveCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Receive Stock</Text>
+              <Text style={styles.modalTitle}>{movementType === 'receive' ? 'Receive Stock' : movementType === 'damage' ? 'Record Damaged Stock' : 'Adjust Stock'}</Text>
               <Pressable onPress={() => setShowReceive(false)}><X size={22} color={theme.colors.text} /></Pressable>
             </View>
             <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: 10 }}>
@@ -210,17 +260,24 @@ export default function InventoryScreen() {
                 ))}
               </View>
               <View style={{ flexDirection: 'row', gap: 10 }}>
-                <Field label="Quantity" value={qty} onChangeText={setQty} keyboardType="numeric" flex />
-                <Field label="Unit Cost" value={unitCost} onChangeText={setUnitCost} keyboardType="numeric" flex />
+                <Field label={movementType === 'adjustment' ? 'Quantity (+ / -)' : 'Quantity'} value={qty} onChangeText={setQty} keyboardType="numeric" flex />
+                {movementType === 'receive' && <Field label="Unit Cost" value={unitCost} onChangeText={setUnitCost} keyboardType="numeric" flex />}
               </View>
+              {movementType === 'receive' && <>
+                <Field label="Batch Number" value={batchNumber} onChangeText={setBatchNumber} />
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Field label="Manufacturing Date (YYYY-MM-DD)" value={manufacturingDate} onChangeText={setManufacturingDate} flex />
+                  <Field label="Expiry Date (YYYY-MM-DD)" value={expiryDate} onChangeText={setExpiryDate} flex />
+                </View>
+              </>}
               <Field label="Reference" value={reference} onChangeText={setReference} />
               <Field label="Notes" value={notes} onChangeText={setNotes} />
-              <View style={styles.totalRow}>
+              {movementType === 'receive' && <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Total Cost</Text>
                 <Text style={styles.totalValue}>{formatLKR((Number(qty) || 0) * (Number(unitCost) || 0))}</Text>
-              </View>
+              </View>}
             </ScrollView>
-            <Button title="Save Receipt" onPress={receiveStock} loading={saving} fullWidth style={{ marginTop: 14 }} />
+            <Button title={movementType === 'receive' ? 'Save Receipt' : movementType === 'damage' ? 'Record Damage' : 'Save Adjustment'} onPress={receiveStock} loading={saving} fullWidth style={{ marginTop: 14 }} />
           </Card>
         </View>
       </Modal>
@@ -259,6 +316,9 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingBottom: 12 },
   searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.colors.card, borderRadius: 12, paddingHorizontal: 14, margin: 12, borderWidth: 1, borderColor: theme.colors.border, paddingVertical: 4 },
   search: { flex: 1, paddingVertical: 12, fontSize: 15, color: theme.colors.text },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginHorizontal: 16, marginBottom: 8 },
+  actionButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.border },
+  actionText: { fontSize: 12, color: theme.colors.text, fontWeight: '600' },
   addBtn: { backgroundColor: theme.colors.primary[700], borderRadius: 10, padding: 8 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: theme.colors.text, marginHorizontal: 16, marginTop: 8, marginBottom: 6 },
   itemName: { fontSize: 15, fontWeight: '600', color: theme.colors.text },
