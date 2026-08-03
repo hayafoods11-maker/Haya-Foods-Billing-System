@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput, Pressable, ScrollView, Modal } from 'react-native';
-import { Search, X, Download, Eye, Wallet } from 'lucide-react-native';
+import { Search, X, Download, Bluetooth } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { theme } from '@/lib/theme';
@@ -8,6 +8,7 @@ import { formatLKR, formatDate, formatDateTime, paymentStatusLabel, paymentStatu
 import type { Invoice, InvoiceItem, Payment, PaymentMethod } from '@/lib/types';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Screen, ScreenScroll, Card, Button, Empty, ErrorBox, Badge } from '@/components/ui';
+import { printInvoice } from '@/lib/printInvoice';
 
 export default function InvoicesScreen() {
   const { staff } = useAuth();
@@ -20,6 +21,7 @@ export default function InvoicesScreen() {
   const [showPay, setShowPay] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState<PaymentMethod>('Cash');
+  const [printerMessage, setPrinterMessage] = useState<string | null>(null);
 
   const canRecordPayment = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'cashier';
 
@@ -99,6 +101,20 @@ export default function InvoicesScreen() {
     }
   };
 
+  const connectBluetoothPrinter = async () => {
+    if (typeof navigator === 'undefined' || !('bluetooth' in navigator)) {
+      setPrinterMessage('Bluetooth setup is available in Chrome. Pair the printer in your device settings, then choose it from the Print dialog.');
+      return;
+    }
+    try {
+      const bluetooth = (navigator as Navigator & { bluetooth: { requestDevice: (options: { acceptAllDevices: boolean }) => Promise<{ name?: string }> } }).bluetooth;
+      const device = await bluetooth.requestDevice({ acceptAllDevices: true });
+      setPrinterMessage(`${device.name ?? 'Bluetooth printer'} selected. Use Print Invoice and select this printer in the system dialog.`);
+    } catch {
+      setPrinterMessage('Bluetooth printer setup was cancelled.');
+    }
+  };
+
   return (
     <Screen>
       <BrandHeader subtitle="Invoices" />
@@ -171,11 +187,17 @@ export default function InvoicesScreen() {
               </View>
 
               <View style={styles.actionRow}>
+                <Button title="Print Invoice" onPress={() => printInvoice(selected)} style={{ flex: 1 }} />
                 <Button title="Export" variant="outline" onPress={() => exportInvoice(selected)} style={{ flex: 1 }} />
                 {canRecordPayment && selected.payment_status !== 'paid' && (
                   <Button title="Record Payment" variant="gold" onPress={() => setShowPay(true)} style={{ flex: 1 }} />
                 )}
               </View>
+              <Pressable onPress={connectBluetoothPrinter} style={styles.bluetoothAction}>
+                <Bluetooth size={16} color={theme.colors.primary[700]} />
+                <Text style={styles.bluetoothText}>Connect Bluetooth printer</Text>
+              </Pressable>
+              {printerMessage && <Text style={styles.printerMessage}>{printerMessage}</Text>}
             </Card>
           </View>
         )}
@@ -239,7 +261,10 @@ const styles = StyleSheet.create({
   grandRow: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: theme.colors.border, marginTop: 6, paddingTop: 8 },
   grandLabel: { fontSize: 17, fontWeight: '700', color: theme.colors.text },
   grandValue: { fontSize: 17, fontWeight: '800', color: theme.colors.primary[700] },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
+  bluetoothAction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 14, paddingVertical: 10 },
+  bluetoothText: { color: theme.colors.primary[700], fontSize: 13, fontWeight: '700' },
+  printerMessage: { marginTop: 4, padding: 10, borderRadius: 10, backgroundColor: theme.colors.primary[50], color: theme.colors.primary[800], fontSize: 12, lineHeight: 17, textAlign: 'center' },
   payCard: { borderRadius: 20, padding: 20, paddingBottom: 28 },
   payTitle: { fontSize: 18, fontWeight: '700', color: theme.colors.text },
   payCaption: { fontSize: 13, color: theme.colors.textMuted, marginTop: 4, marginBottom: 14 },
