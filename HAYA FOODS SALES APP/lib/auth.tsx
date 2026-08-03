@@ -28,7 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const loadStaff = async (uid: string) => {
+  const loadStaff = async (uid: string): Promise<Staff | null> => {
     const { data, error } = await supabase
       .from('staff')
       .select('*')
@@ -36,9 +36,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .maybeSingle();
     if (error) {
       setStaff(null);
-      return;
+      return null;
     }
-    setStaff(data as Staff | null);
+    const profile = data as Staff | null;
+    setStaff(profile);
+    return profile;
   };
 
   useEffect(() => {
@@ -74,8 +76,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error ? error.message : null };
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    if (!data.user) return { error: 'Could not complete sign-in. Please try again.' };
+    const profile = await loadStaff(data.user.id);
+    if (!profile) {
+      return { error: 'Your account signed in, but no active staff profile was found. Ask an administrator to create or activate it.' };
+    }
+    if (!profile.active) return { error: 'This staff account is inactive. Ask an administrator to activate it.' };
+    return { error: null };
   };
 
   const signUp = async (email: string, password: string, fullName: string, phone: string) => {
