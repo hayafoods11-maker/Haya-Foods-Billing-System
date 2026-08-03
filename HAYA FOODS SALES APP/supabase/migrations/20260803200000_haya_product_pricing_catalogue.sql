@@ -1,11 +1,17 @@
 -- Replace the demo catalogue with Haya Foods retail, wholesale and case products.
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS wholesale_price numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS case_size integer NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS case_price numeric(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS wholesale_price numeric(12,2) NOT NULL DEFAULT 0;
 
 INSERT INTO public.categories (name, description)
 VALUES ('Fruit Juices & Nectars', 'Haya Foods natural fruit nectars and flavoured juices')
 ON CONFLICT (name) DO NOTHING;
 
 DELETE FROM public.products;
+
+DELETE FROM public.categories
+WHERE name IN ('Frozen Foods', 'Snacks', 'Spices', 'Beverages', 'Groceries', 'Dairy');
 
 INSERT INTO public.products (name, sku, category_id, unit, selling_price, wholesale_price, case_size, case_price, cost_price, stock, reorder_level, active)
 SELECT item.name, item.sku, category.id, 'bottle', item.retail_price, item.wholesale_price, item.case_size, item.wholesale_price * item.case_size, 0, 0, 24, true

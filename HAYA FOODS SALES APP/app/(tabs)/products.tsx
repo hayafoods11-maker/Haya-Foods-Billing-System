@@ -66,7 +66,7 @@ export default function ProductsScreen() {
           </Pressable>
         )}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 8 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 8, alignItems: 'center' }} style={{ flexGrow: 0 }}>
         <FilterChip label="All" active={catFilter === 'all'} onPress={() => setCatFilter('all')} />
         {categories.map((c) => (
           <FilterChip key={c.id} label={c.name} active={catFilter === c.id} onPress={() => setCatFilter(c.id)} />
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
   stockChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   stockChipText: { fontSize: 11, fontWeight: '700' },
   stockOk: { fontSize: 12, color: theme.colors.primary[700], fontWeight: '600' },
-  chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.border },
+  chip: { alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.border },
   chipActive: { backgroundColor: theme.colors.primary[700], borderColor: theme.colors.primary[700] },
   chipText: { fontSize: 13, fontWeight: '600', color: theme.colors.textMuted },
   chipTextActive: { color: theme.colors.white },
