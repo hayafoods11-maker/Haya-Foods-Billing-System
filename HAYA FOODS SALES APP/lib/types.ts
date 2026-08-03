@@ -82,6 +82,7 @@ export interface Product {
   category_id: string | null;
   unit: string;
   selling_price: number;
+  wholesale_price: number;
   case_size: number;
   case_price: number;
   cost_price: number;

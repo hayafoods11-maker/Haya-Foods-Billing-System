@@ -25,7 +25,7 @@ import { printInvoice } from '@/lib/printInvoice';
 interface CartLine {
   product: ProductWithCategory;
   qty: number;
-  saleUnit: 'single' | 'case';
+  saleUnit: 'single' | 'wholesale' | 'case';
 }
 
 const BREAKPOINT = 768;
@@ -49,6 +49,7 @@ export default function POSScreen() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [priceMode, setPriceMode] = useState<'single' | 'wholesale'>('single');
   const [completedInvoice, setCompletedInvoice] = useState<(Invoice & { customer?: { name: string; phone: string | null } | null; invoice_items?: InvoiceItem[] }) | null>(null);
   const [printerMessage, setPrinterMessage] = useState<string | null>(null);
 
@@ -118,7 +119,7 @@ export default function POSScreen() {
 
   const removeLine = (id: string, saleUnit: CartLine['saleUnit']) => setCart((c) => c.filter((l) => l.product.id !== id || l.saleUnit !== saleUnit));
 
-  const unitPrice = (line: CartLine) => line.saleUnit === 'case' ? line.product.case_price : line.product.selling_price;
+  const unitPrice = (line: CartLine) => line.saleUnit === 'case' ? line.product.case_price : line.saleUnit === 'wholesale' ? line.product.wholesale_price : line.product.selling_price;
   const stockQuantity = (line: CartLine) => line.qty * (line.saleUnit === 'case' ? line.product.case_size : 1);
   const subtotal = cart.reduce((s, l) => s + unitPrice(l) * l.qty, 0);
   const discount = (subtotal * (Number(discountPct) || 0)) / 100;
@@ -268,7 +269,7 @@ export default function POSScreen() {
       contentContainerStyle={{ padding: 12, gap: 10 }}
       renderItem={({ item }) => (
         <Pressable
-          onPress={() => addToCart(item, 'single')}
+          onPress={() => addToCart(item, priceMode)}
           onLongPress={() => item.case_size > 1 && item.case_price > 0 && addToCart(item, 'case')}
           style={({ pressed }) => [styles.productCard, pressed && { opacity: 0.8 }]}
         >
@@ -288,6 +289,7 @@ export default function POSScreen() {
   );
 
   const searchBox = (
+    <>
     <View style={styles.searchWrap}>
       <Search size={18} color={theme.colors.textMuted} />
       <TextInput
@@ -298,6 +300,11 @@ export default function POSScreen() {
         placeholderTextColor={theme.colors.textMuted}
       />
     </View>
+    <View style={styles.priceModes}>
+      <Pressable onPress={() => setPriceMode('single')} style={[styles.priceMode, priceMode === 'single' && styles.priceModeActive]}><Text style={[styles.priceModeText, priceMode === 'single' && styles.priceModeTextActive]}>Retail / Unit</Text></Pressable>
+      <Pressable onPress={() => setPriceMode('wholesale')} style={[styles.priceMode, priceMode === 'wholesale' && styles.priceModeActive]}><Text style={[styles.priceModeText, priceMode === 'wholesale' && styles.priceModeTextActive]}>Wholesale</Text></Pressable>
+    </View>
+    </>
   );
 
   const cartPanel = (
@@ -333,7 +340,7 @@ export default function POSScreen() {
             <View key={`${l.product.id}-${l.saleUnit}`} style={styles.cartLine}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.lineName} numberOfLines={1}>{l.product.name}</Text>
-                <Text style={styles.linePrice}>{l.saleUnit === 'case' ? `Case of ${l.product.case_size} · ` : ''}{formatLKR(unitPrice(l))}</Text>
+                <Text style={styles.linePrice}>{l.saleUnit === 'case' ? `Case of ${l.product.case_size} · ` : l.saleUnit === 'wholesale' ? 'Wholesale · ' : 'Retail · '}{formatLKR(unitPrice(l))}</Text>
               </View>
               <View style={styles.qtyRow}>
                 <Pressable onPress={() => changeQty(l.product.id, l.saleUnit, -1)} style={styles.qtyBtn}>
@@ -523,6 +530,11 @@ const styles = StyleSheet.create({
   fabView: { color: theme.colors.white, fontSize: 13, fontWeight: '600', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999 },
   searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.colors.card, borderRadius: 12, paddingHorizontal: 14, margin: 12, borderWidth: 1, borderColor: theme.colors.border, paddingVertical: 4 },
   search: { flex: 1, paddingVertical: 12, fontSize: 15, color: theme.colors.text },
+  priceModes: { flexDirection: 'row', gap: 8, marginHorizontal: 12, marginBottom: 4 },
+  priceMode: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.card },
+  priceModeActive: { backgroundColor: theme.colors.primary[700], borderColor: theme.colors.primary[700] },
+  priceModeText: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted },
+  priceModeTextActive: { color: theme.colors.white },
   productCard: { flex: 1, backgroundColor: theme.colors.card, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.border, margin: 4, ...theme.shadows.sm },
   prodName: { fontSize: 14, fontWeight: '600', color: theme.colors.text, minHeight: 36 },
   prodSub: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
