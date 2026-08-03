@@ -5,9 +5,10 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { theme } from '@/lib/theme';
 import { formatLKR, formatDate, orderStatusLabel, orderStatusColor, paymentStatusLabel, paymentStatusColor } from '@/lib/format';
-import type { Order, OrderItem, OrderStatus, Customer } from '@/lib/types';
+import type { Order, OrderItem, OrderStatus, Invoice, InvoiceItem } from '@/lib/types';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Screen, ScreenScroll, Card, Button, Empty, ErrorBox, Badge } from '@/components/ui';
+import { printInvoice } from '@/lib/printInvoice';
 
 const STATUS_FLOW: OrderStatus[] = ['draft', 'pending', 'confirmed', 'packed', 'out_for_delivery', 'delivered'];
 
@@ -20,6 +21,8 @@ export default function OrdersScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<(Order & { customer?: { name: string; phone: string | null } | null; order_items?: OrderItem[] }) | null>(null);
+  const [orderInvoice, setOrderInvoice] = useState<(Invoice & { customer?: { name: string; phone: string | null } | null; invoice_items?: InvoiceItem[] }) | null>(null);
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -39,6 +42,19 @@ export default function OrdersScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!selected) {
+      setOrderInvoice(null);
+      return;
+    }
+    supabase
+      .from('invoices')
+      .select('*, customer:customers(name, phone), invoice_items')
+      .eq('order_id', selected.id)
+      .maybeSingle()
+      .then(({ data }) => setOrderInvoice(data as typeof orderInvoice));
+  }, [selected]);
+
   const filtered = orders.filter((o) => {
     if (filter !== 'all' && o.status !== filter) return false;
     const s = query.trim().toLowerCase();
@@ -53,6 +69,56 @@ export default function OrdersScreen() {
     if (error) { setError('Could not update status.'); return; }
     setSelected(null);
     load();
+  };
+
+  const createInvoiceForOrder = async () => {
+    if (!selected) return;
+    setCreatingInvoice(true);
+    setError(null);
+    try {
+      const { data: settings } = await supabase.from('company_settings').select('invoice_prefix').eq('id', 1).maybeSingle();
+      const invoiceNumber = `${settings?.invoice_prefix ?? 'INV'}-${Date.now().toString().slice(-6)}`;
+      const isCredit = selected.payment_method === 'Credit';
+      const { data: invoice, error: invoiceError } = await supabase
+        .from('invoices')
+        .insert({
+          invoice_number: invoiceNumber,
+          order_id: selected.id,
+          customer_id: selected.customer_id,
+          created_by: staff?.id ?? null,
+          subtotal: selected.subtotal,
+          discount_amount: selected.discount_amount,
+          tax_amount: selected.tax_amount,
+          total: selected.total,
+          paid_amount: isCredit ? 0 : selected.total,
+          balance: isCredit ? selected.total : 0,
+          payment_status: isCredit ? 'unpaid' : 'paid',
+          payment_method: selected.payment_method,
+          notes: selected.notes,
+        })
+        .select('*, customer:customers(name, phone)')
+        .single();
+      if (invoiceError || !invoice) throw invoiceError ?? new Error('Could not create invoice.');
+
+      const items = (selected.order_items ?? []).map((item) => ({
+        invoice_id: invoice.id,
+        product_id: item.product_id,
+        name: item.name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        discount_amount: item.discount_amount,
+        line_total: item.line_total,
+      }));
+      if (items.length) {
+        const { error: itemsError } = await supabase.from('invoice_items').insert(items);
+        if (itemsError) throw itemsError;
+      }
+      setOrderInvoice({ ...(invoice as Invoice), invoice_items: items as InvoiceItem[] });
+    } catch {
+      setError('Could not create an invoice for this order.');
+    } finally {
+      setCreatingInvoice(false);
+    }
   };
 
   const canManage = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'cashier' || staff?.role === 'sales_rep';
@@ -121,6 +187,12 @@ export default function OrdersScreen() {
                   <Text style={styles.grandValue}>{formatLKR(selected.total)}</Text>
                 </View>
               </View>
+
+              {orderInvoice ? (
+                <Button title="Print Invoice" onPress={() => printInvoice(orderInvoice)} fullWidth style={{ marginTop: 14 }} />
+              ) : canManage ? (
+                <Button title="Generate Invoice" onPress={createInvoiceForOrder} loading={creatingInvoice} fullWidth style={{ marginTop: 14 }} />
+              ) : null}
 
               {canManage && selected.status !== 'delivered' && selected.status !== 'cancelled' && (
                 <View style={styles.actionRow}>
