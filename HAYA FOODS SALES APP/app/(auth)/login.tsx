@@ -19,21 +19,12 @@ import { Button, ErrorBox } from '@/components/ui';
 
 const SAVED_EMAIL_KEY = 'haya-foods.saved-login-email';
 
-function getSavedEmail() {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return '';
-  try {
-    return window.localStorage.getItem(SAVED_EMAIL_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function saveEmail(email: string) {
+function clearSavedEmail() {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(SAVED_EMAIL_KEY, email);
+    window.localStorage.removeItem(SAVED_EMAIL_KEY);
   } catch {
-    // The app remains fully usable if browser storage is unavailable.
+    // The app remains usable if browser storage is unavailable.
   }
 }
 
@@ -41,7 +32,7 @@ export default function LoginScreen() {
   const { signIn, signUp, configError, session, staff } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>('login');
-  const [email, setEmail] = useState(getSavedEmail);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -59,6 +50,11 @@ export default function LoginScreen() {
           setAllowSignup((count ?? 0) === 0);
         }
       });
+  }, []);
+
+  // Do not keep any email address in this device's app storage.
+  useEffect(() => {
+    clearSavedEmail();
   }, []);
 
   // Supabase opens the app with this event after a valid recovery-email link.
@@ -130,9 +126,6 @@ export default function LoginScreen() {
         const { error } = await signIn(email.trim(), password);
         if (error) {
           setError(error);
-        } else {
-          // Remember only the email. The password is never stored by the app.
-          saveEmail(email.trim());
         }
       } else {
         const { error } = await signUp(email.trim(), password, fullName.trim(), phone.trim());
@@ -246,7 +239,7 @@ export default function LoginScreen() {
           {mode === 'login' && (
             <View style={styles.securityNote}>
               <ShieldCheck size={16} color={theme.colors.primary[700]} />
-              <Text style={styles.securityText}>Your email can be remembered on this device. For security, you must select Sign in every time.</Text>
+              <Text style={styles.securityText}>Your login details are not saved by this app. For security, enter them each time.</Text>
             </View>
           )}
 
