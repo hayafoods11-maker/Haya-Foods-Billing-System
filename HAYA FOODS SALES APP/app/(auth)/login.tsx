@@ -9,18 +9,39 @@ import {
   Platform,
   ScrollView,
   Pressable,
+  type TextInputProps,
 } from 'react-native';
-import { Leaf, Mail, Lock, User, Phone, Eye, EyeOff } from 'lucide-react-native';
+import { Leaf, Mail, Lock, User, Phone, Eye, EyeOff, ShieldCheck } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { theme } from '@/lib/theme';
 import { Button, ErrorBox } from '@/components/ui';
 
+const SAVED_EMAIL_KEY = 'haya-foods.saved-login-email';
+
+function getSavedEmail() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(SAVED_EMAIL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveEmail(email: string) {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SAVED_EMAIL_KEY, email);
+  } catch {
+    // The app remains fully usable if browser storage is unavailable.
+  }
+}
+
 export default function LoginScreen() {
   const { signIn, signUp, configError, session, staff } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(getSavedEmail);
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -66,7 +87,12 @@ export default function LoginScreen() {
     try {
       if (mode === 'login') {
         const { error } = await signIn(email.trim(), password);
-        if (error) setError(error);
+        if (error) {
+          setError(error);
+        } else {
+          // Remember only the email. The password is never stored by the app.
+          saveEmail(email.trim());
+        }
       } else {
         const { error } = await signUp(email.trim(), password, fullName.trim(), phone.trim());
         if (error) setError(error);
@@ -117,6 +143,8 @@ export default function LoginScreen() {
             onChangeText={setEmail}
             keyboardType="email-address"
             autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
           />
 
           <Field
@@ -125,6 +153,8 @@ export default function LoginScreen() {
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPwd}
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            textContentType={mode === 'login' ? 'password' : 'newPassword'}
             trailing={
               <Pressable onPress={() => setShowPwd((s) => !s)} hitSlop={8}>
                 {showPwd ? <EyeOff size={18} color={theme.colors.textMuted} /> : <Eye size={18} color={theme.colors.textMuted} />}
@@ -144,6 +174,13 @@ export default function LoginScreen() {
 
           <View style={{ height: 20 }} />
           <Button title={mode === 'login' ? 'Sign in' : 'Create account'} onPress={submit} loading={loading} fullWidth />
+
+          {mode === 'login' && (
+            <View style={styles.securityNote}>
+              <ShieldCheck size={16} color={theme.colors.primary[700]} />
+              <Text style={styles.securityText}>Your email can be remembered on this device. For security, you must select Sign in every time.</Text>
+            </View>
+          )}
 
           {allowSignup ? (
             <Pressable
@@ -174,6 +211,8 @@ function Field({
   secureTextEntry,
   keyboardType,
   autoCapitalize,
+  autoComplete,
+  textContentType,
   trailing,
 }: {
   icon: React.ReactNode;
@@ -183,6 +222,8 @@ function Field({
   secureTextEntry?: boolean;
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words';
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
   trailing?: React.ReactNode;
 }) {
   return (
@@ -197,6 +238,8 @@ function Field({
           secureTextEntry={secureTextEntry}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
           placeholderTextColor={theme.colors.textMuted}
         />
         {trailing}
@@ -228,5 +271,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 4, borderWidth: 1, borderColor: theme.colors.border,
   },
   input: { flex: 1, paddingVertical: 12, fontSize: 16, color: theme.colors.text },
+  securityNote: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 14, padding: 12, borderRadius: 10, backgroundColor: theme.colors.primary[50] },
+  securityText: { flex: 1, fontSize: 12, lineHeight: 18, color: theme.colors.primary[800] },
   switch: { fontSize: 14, color: theme.colors.primary[700], fontWeight: '600' },
 });
