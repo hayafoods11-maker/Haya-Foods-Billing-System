@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { router } from 'expo-router';
 import {
   View,
   Text,
@@ -16,9 +17,10 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { theme } from '@/lib/theme';
 import { formatLKR } from '@/lib/format';
-import type { ProductWithCategory, Customer, CompanySettings, PaymentMethod } from '@/lib/types';
+import type { ProductWithCategory, Customer, CompanySettings, PaymentMethod, Invoice, InvoiceItem } from '@/lib/types';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Screen, Card, Button, Empty, ErrorBox } from '@/components/ui';
+import { printInvoice } from '@/lib/printInvoice';
 
 interface CartLine {
   product: ProductWithCategory;
@@ -46,6 +48,8 @@ export default function POSScreen() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [completedInvoice, setCompletedInvoice] = useState<(Invoice & { customer?: { name: string; phone: string | null } | null; invoice_items?: InvoiceItem[] }) | null>(null);
+  const [printerMessage, setPrinterMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -121,6 +125,11 @@ export default function POSScreen() {
     setError(null);
     setProcessing(true);
     try {
+    const { data: currentProducts, error: stockError } = await supabase.from('products').select('id, name, stock').in('id', cart.map((line) => line.product.id));
+    if (stockError) throw stockError;
+    const currentStock = new Map((currentProducts ?? []).map((product) => [product.id, product]));
+    const unavailable = cart.find((line) => Number(currentStock.get(line.product.id)?.stock ?? 0) < line.qty);
+    if (unavailable) throw new Error(`Not enough stock for ${unavailable.product.name}. Refresh and try again.`);
     const prefix = settings?.invoice_prefix ?? 'INV';
     const invNo = `${prefix}-${Date.now().toString().slice(-6)}`;
     const ordNo = `ORD-${Date.now().toString().slice(-6)}`;
@@ -221,11 +230,24 @@ export default function POSScreen() {
     setSelectedCustomer(null);
     setDiscountPct('0');
     setSuccess(`Sale complete — ${invNo}`);
-    load();
+    setCompletedInvoice({
+      ...(invData as Invoice),
+      customer: selectedCustomer ? { name: selectedCustomer.name, phone: selectedCustomer.phone } : null,
+      invoice_items: invoiceItems as InvoiceItem[],
+    });
+    await load();
     } catch (saleError) {
       setError(saleError instanceof Error ? saleError.message : 'Could not save this sale. Please try again.');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  const printCompletedInvoice = () => {
+    if (!completedInvoice) return;
+    setPrinterMessage(null);
+    if (!printInvoice(completedInvoice)) {
+      setPrinterMessage('Your browser blocked the invoice window. Allow pop-ups for this app, then tap Print Invoice again.');
     }
   };
 
@@ -417,6 +439,24 @@ export default function POSScreen() {
         </View>
       </Modal>
 
+      <Modal visible={!!completedInvoice} animationType="slide" transparent onRequestClose={() => setCompletedInvoice(null)}>
+        {completedInvoice && <View style={styles.modalOverlay}>
+          <Card style={styles.payCard}>
+            <View style={styles.payHeader}>
+              <Text style={styles.payTitle}>Payment Complete</Text>
+              <Pressable onPress={() => setCompletedInvoice(null)}><X size={22} color={theme.colors.text} /></Pressable>
+            </View>
+            <View style={styles.receiptIcon}><Check size={28} color={theme.colors.white} /></View>
+            <Text style={styles.receiptInvoice}>{completedInvoice.invoice_number}</Text>
+            <Text style={styles.receiptTotal}>{formatLKR(completedInvoice.total)}</Text>
+            <Text style={styles.receiptCaption}>Your invoice is ready to print.</Text>
+            <Button title="Print Invoice" onPress={printCompletedInvoice} fullWidth style={{ marginTop: 18 }} />
+            <Button title="View Invoices" variant="outline" onPress={() => { setCompletedInvoice(null); router.push('/invoices'); }} fullWidth style={{ marginTop: 10 }} />
+            {printerMessage && <Text style={styles.printerMessage}>{printerMessage}</Text>}
+          </Card>
+        </View>}
+      </Modal>
+
       <Modal visible={showCustomer} animationType="slide" transparent onRequestClose={() => setShowCustomer(false)}>
         <View style={styles.modalOverlay}>
           <Card style={styles.custCard}>
@@ -510,6 +550,11 @@ const styles = StyleSheet.create({
   payGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   payOption: { flexBasis: '45%', flexGrow: 1, minWidth: '45%', flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.neutral[50] },
   payOptionText: { fontSize: 15, fontWeight: '600', color: theme.colors.text },
+  receiptIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.colors.primary[700], alignSelf: 'center', alignItems: 'center', justifyContent: 'center', marginTop: 18 },
+  receiptInvoice: { color: theme.colors.text, fontSize: 16, fontWeight: '700', textAlign: 'center', marginTop: 14 },
+  receiptTotal: { color: theme.colors.primary[700], fontSize: 28, fontWeight: '800', textAlign: 'center', marginTop: 6 },
+  receiptCaption: { color: theme.colors.textMuted, fontSize: 14, textAlign: 'center', marginTop: 6 },
+  printerMessage: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: theme.colors.primary[50], color: theme.colors.primary[800], fontSize: 12, lineHeight: 17, textAlign: 'center' },
   custCard: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: 20, paddingBottom: 30, maxHeight: '80%' },
   custRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.neutral[50] },
   custRowActive: { borderColor: theme.colors.primary[700], backgroundColor: theme.colors.primary[50] },
