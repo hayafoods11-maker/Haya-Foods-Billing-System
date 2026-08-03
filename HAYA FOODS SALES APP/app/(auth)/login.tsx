@@ -40,7 +40,7 @@ function saveEmail(email: string) {
 export default function LoginScreen() {
   const { signIn, signUp, configError, session, staff } = useAuth();
   const router = useRouter();
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>('login');
   const [email, setEmail] = useState(getSavedEmail);
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -61,6 +61,20 @@ export default function LoginScreen() {
       });
   }, []);
 
+  // Supabase opens the app with this event after a valid recovery-email link.
+  // Keeping the reset form on the same /login route also works with Vercel's
+  // web deployment and avoids a missing-route error on refresh.
+  useEffect(() => {
+    const { data: subscription } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setMode('reset');
+        setError(null);
+        setPassword('');
+      }
+    });
+    return () => subscription.subscription.unsubscribe();
+  }, []);
+
   // Authentication and the staff profile are loaded separately. Navigate only
   // after both are ready so the tabs do not briefly redirect back to login.
   useEffect(() => {
@@ -71,8 +85,12 @@ export default function LoginScreen() {
 
   const submit = async () => {
     setError(null);
-    if (!email.trim() || !password) {
-      setError('Please enter email and password.');
+    if (!email.trim() && mode !== 'reset') {
+      setError('Please enter your email address.');
+      return;
+    }
+    if ((mode === 'login' || mode === 'signup' || mode === 'reset') && !password) {
+      setError('Please enter a password.');
       return;
     }
     if (mode === 'signup' && !allowSignup) {
@@ -85,7 +103,30 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      if (mode === 'login') {
+      if (mode === 'forgot') {
+        const redirectTo = Platform.OS === 'web' && typeof window !== 'undefined'
+          ? `${window.location.origin}/login`
+          : undefined;
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+        if (error) {
+          setError(error.message);
+        } else {
+          setError('Password reset link sent. Open the newest email, then set your new password here.');
+        }
+      } else if (mode === 'reset') {
+        if (password.length < 6) {
+          setError('Your new password must be at least 6 characters long.');
+          return;
+        }
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) {
+          setError(error.message);
+        } else {
+          setPassword('');
+          setMode('login');
+          setError('Password updated. You can now sign in.');
+        }
+      } else if (mode === 'login') {
         const { error } = await signIn(email.trim(), password);
         if (error) {
           setError(error);
@@ -117,11 +158,17 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.title}>{mode === 'login' ? 'Sign in' : 'Create account'}</Text>
+          <Text style={styles.title}>
+            {mode === 'login' ? 'Sign in' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Reset password' : 'Choose a new password'}
+          </Text>
           <Text style={styles.subtitle}>
             {mode === 'login'
               ? 'Use your staff account to continue.'
-              : 'The first account becomes the admin.'}
+              : mode === 'signup'
+                ? 'The first account becomes the admin.'
+                : mode === 'forgot'
+                  ? 'We will send a secure password-reset link to your email.'
+                  : 'Enter a new password for your admin account.'}
           </Text>
 
           {configError && <View style={{ marginBottom: 12 }}><ErrorBox message={configError} /></View>}
@@ -136,31 +183,35 @@ export default function LoginScreen() {
             />
           )}
 
-          <Field
-            icon={<Mail size={18} color={theme.colors.textMuted} />}
-            placeholder="Email address"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-            textContentType="emailAddress"
-          />
+          {mode !== 'reset' && (
+            <Field
+              icon={<Mail size={18} color={theme.colors.textMuted} />}
+              placeholder="Email address"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+            />
+          )}
 
-          <Field
-            icon={<Lock size={18} color={theme.colors.textMuted} />}
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPwd}
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            textContentType={mode === 'login' ? 'password' : 'newPassword'}
-            trailing={
-              <Pressable onPress={() => setShowPwd((s) => !s)} hitSlop={8}>
-                {showPwd ? <EyeOff size={18} color={theme.colors.textMuted} /> : <Eye size={18} color={theme.colors.textMuted} />}
-              </Pressable>
-            }
-          />
+          {mode !== 'forgot' && (
+            <Field
+              icon={<Lock size={18} color={theme.colors.textMuted} />}
+              placeholder={mode === 'reset' ? 'New password' : 'Password'}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPwd}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              textContentType={mode === 'login' ? 'password' : 'newPassword'}
+              trailing={
+                <Pressable onPress={() => setShowPwd((s) => !s)} hitSlop={8}>
+                  {showPwd ? <EyeOff size={18} color={theme.colors.textMuted} /> : <Eye size={18} color={theme.colors.textMuted} />}
+                </Pressable>
+              }
+            />
+          )}
 
           {mode === 'signup' && (
             <Field
@@ -173,7 +224,24 @@ export default function LoginScreen() {
           )}
 
           <View style={{ height: 20 }} />
-          <Button title={mode === 'login' ? 'Sign in' : 'Create account'} onPress={submit} loading={loading} fullWidth />
+          <Button
+            title={mode === 'login' ? 'Sign in' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send reset link' : 'Save new password'}
+            onPress={submit}
+            loading={loading}
+            fullWidth
+          />
+
+          {mode === 'login' && (
+            <Pressable onPress={() => { setMode('forgot'); setError(null); setPassword(''); }} style={{ alignSelf: 'center', marginTop: 16 }}>
+              <Text style={styles.switch}>Forgot password?</Text>
+            </Pressable>
+          )}
+
+          {(mode === 'forgot' || mode === 'reset') && (
+            <Pressable onPress={() => { setMode('login'); setError(null); setPassword(''); }} style={{ alignSelf: 'center', marginTop: 16 }}>
+              <Text style={styles.switch}>Back to sign in</Text>
+            </Pressable>
+          )}
 
           {mode === 'login' && (
             <View style={styles.securityNote}>
@@ -182,7 +250,7 @@ export default function LoginScreen() {
             </View>
           )}
 
-          {allowSignup ? (
+          {allowSignup && (mode === 'login' || mode === 'signup') ? (
             <Pressable
               onPress={() => {
                 setMode(mode === 'login' ? 'signup' : 'login');
