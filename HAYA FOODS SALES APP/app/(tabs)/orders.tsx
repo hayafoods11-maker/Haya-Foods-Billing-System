@@ -23,6 +23,7 @@ export default function OrdersScreen() {
   const [selected, setSelected] = useState<(Order & { customer?: { name: string; phone: string | null } | null; order_items?: OrderItem[] }) | null>(null);
   const [orderInvoice, setOrderInvoice] = useState<(Invoice & { customer?: { name: string; phone: string | null } | null; invoice_items?: InvoiceItem[] }) | null>(null);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [printerMessage, setPrinterMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -121,6 +122,13 @@ export default function OrdersScreen() {
     }
   };
 
+  const handlePrint = (invoice: NonNullable<typeof orderInvoice>) => {
+    setPrinterMessage(null);
+    if (!printInvoice(invoice)) {
+      setPrinterMessage('Your browser blocked the invoice window. Allow pop-ups for this app, then tap Print Invoice again.');
+    }
+  };
+
   const canManage = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'cashier' || staff?.role === 'sales_rep';
 
   return (
@@ -189,10 +197,11 @@ export default function OrdersScreen() {
               </View>
 
               {orderInvoice ? (
-                <Button title="Print Invoice" onPress={() => printInvoice(orderInvoice)} fullWidth style={{ marginTop: 14 }} />
+                <Button title="Print Invoice" onPress={() => handlePrint(orderInvoice)} fullWidth style={{ marginTop: 14 }} />
               ) : canManage ? (
                 <Button title="Generate Invoice" onPress={createInvoiceForOrder} loading={creatingInvoice} fullWidth style={{ marginTop: 14 }} />
               ) : null}
+              {printerMessage && <Text style={styles.printerMessage}>{printerMessage}</Text>}
 
               {canManage && selected.status !== 'delivered' && selected.status !== 'cancelled' && (
                 <View style={styles.actionRow}>
@@ -269,4 +278,5 @@ const styles = StyleSheet.create({
   grandLabel: { fontSize: 17, fontWeight: '700', color: theme.colors.text },
   grandValue: { fontSize: 17, fontWeight: '800', color: theme.colors.primary[700] },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  printerMessage: { marginTop: 10, padding: 10, borderRadius: 10, backgroundColor: theme.colors.primary[50], color: theme.colors.primary[800], fontSize: 12, lineHeight: 17, textAlign: 'center' },
 });

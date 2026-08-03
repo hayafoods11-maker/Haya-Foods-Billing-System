@@ -45,6 +45,7 @@ export default function POSScreen() {
   const [customerQuery, setCustomerQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -81,9 +82,19 @@ export default function POSScreen() {
   }, [customers, customerQuery]);
 
   const addToCart = (p: ProductWithCategory) => {
+    if (p.stock <= 0) {
+      setError(`${p.name} is out of stock.`);
+      return;
+    }
     setCart((c) => {
       const ex = c.find((l) => l.product.id === p.id);
-      if (ex) return c.map((l) => (l.product.id === p.id ? { ...l, qty: l.qty + 1 } : l));
+      if (ex) {
+        if (ex.qty >= p.stock) {
+          setError(`Only ${p.stock} ${p.unit} of ${p.name} is available.`);
+          return c;
+        }
+        return c.map((l) => (l.product.id === p.id ? { ...l, qty: l.qty + 1 } : l));
+      }
       return [...c, { product: p, qty: 1 }];
     });
     setSuccess(null);
@@ -92,7 +103,7 @@ export default function POSScreen() {
   const changeQty = (id: string, delta: number) => {
     setCart((c) =>
       c
-        .map((l) => (l.product.id === id ? { ...l, qty: Math.max(0, l.qty + delta) } : l))
+        .map((l) => (l.product.id === id ? { ...l, qty: Math.min(l.product.stock, Math.max(0, l.qty + delta)) } : l))
         .filter((l) => l.qty > 0)
     );
   };
@@ -106,8 +117,10 @@ export default function POSScreen() {
   const total = taxable + tax;
 
   const completeSale = async (method: PaymentMethod) => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || processing) return;
     setError(null);
+    setProcessing(true);
+    try {
     const prefix = settings?.invoice_prefix ?? 'INV';
     const invNo = `${prefix}-${Date.now().toString().slice(-6)}`;
     const ordNo = `ORD-${Date.now().toString().slice(-6)}`;
@@ -128,7 +141,7 @@ export default function POSScreen() {
       })
       .select()
       .single();
-    if (ordErr) { setError('Failed to create order.'); return; }
+    if (ordErr || !orderData) throw ordErr ?? new Error('Could not create the order.');
     const orderId = orderData.id;
 
     const orderItems = cart.map((l) => ({
@@ -140,7 +153,8 @@ export default function POSScreen() {
       discount_amount: 0,
       line_total: l.product.selling_price * l.qty,
     }));
-    await supabase.from('order_items').insert(orderItems);
+    const { error: orderItemsError } = await supabase.from('order_items').insert(orderItems);
+    if (orderItemsError) throw orderItemsError;
 
     const { data: invData, error: invErr } = await supabase
       .from('invoices')
@@ -160,7 +174,7 @@ export default function POSScreen() {
       })
       .select()
       .single();
-    if (invErr) { setError('Order created but invoice failed.'); return; }
+    if (invErr || !invData) throw invErr ?? new Error('Could not create the invoice.');
 
     const invoiceItems = cart.map((l) => ({
       invoice_id: invData.id,
@@ -171,7 +185,8 @@ export default function POSScreen() {
       discount_amount: 0,
       line_total: l.product.selling_price * l.qty,
     }));
-    await supabase.from('invoice_items').insert(invoiceItems);
+    const { error: invoiceItemsError } = await supabase.from('invoice_items').insert(invoiceItems);
+    if (invoiceItemsError) throw invoiceItemsError;
 
     const txs = cart.map((l) => ({
       product_id: l.product.id,
@@ -180,21 +195,24 @@ export default function POSScreen() {
       reference: ordNo,
       created_by: staff?.id ?? null,
     }));
-    await supabase.from('inventory_transactions').insert(txs);
+    const { error: transactionError } = await supabase.from('inventory_transactions').insert(txs);
+    if (transactionError) throw transactionError;
 
     if (method !== 'Credit') {
-      await supabase.from('payments').insert({
+      const { error: paymentError } = await supabase.from('payments').insert({
         invoice_id: invData.id,
         customer_id: selectedCustomer?.id ?? null,
         amount: total,
         method,
         received_by: staff?.id ?? null,
       });
+      if (paymentError) throw paymentError;
     } else if (selectedCustomer) {
-      await supabase
+      const { error: customerError } = await supabase
         .from('customers')
         .update({ outstanding_balance: selectedCustomer.outstanding_balance + total })
         .eq('id', selectedCustomer.id);
+      if (customerError) throw customerError;
     }
 
     setShowPay(false);
@@ -204,6 +222,11 @@ export default function POSScreen() {
     setDiscountPct('0');
     setSuccess(`Sale complete — ${invNo}`);
     load();
+    } catch (saleError) {
+      setError(saleError instanceof Error ? saleError.message : 'Could not save this sale. Please try again.');
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const numCols = isWide ? 3 : 2;
@@ -322,7 +345,7 @@ export default function POSScreen() {
           <Text style={styles.grandLabel}>Total</Text>
           <Text style={styles.grandValue}>{formatLKR(total)}</Text>
         </View>
-        <Button title="Charge" onPress={() => setShowPay(true)} fullWidth disabled={cart.length === 0} style={{ marginTop: 12 }} />
+        <Button title={processing ? 'Saving sale…' : 'Charge'} onPress={() => setShowPay(true)} fullWidth disabled={cart.length === 0 || processing} style={{ marginTop: 12 }} />
       </View>
     </View>
   );
@@ -384,7 +407,7 @@ export default function POSScreen() {
             <Text style={styles.payCaption}>Select payment method</Text>
             <View style={styles.payGrid}>
               {(settings?.payment_methods ?? ['Cash', 'Card', 'Bank Transfer', 'Credit']).map((m) => (
-                <Pressable key={m} style={styles.payOption} onPress={() => completeSale(m as PaymentMethod)}>
+                <Pressable key={m} style={[styles.payOption, processing && { opacity: 0.55 }]} disabled={processing} onPress={() => completeSale(m as PaymentMethod)}>
                   <CreditCard size={22} color={theme.colors.primary[700]} />
                   <Text style={styles.payOptionText}>{m}</Text>
                 </Pressable>

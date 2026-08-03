@@ -12,11 +12,11 @@ function escapeHtml(value: string | number | null | undefined) {
   }[char] ?? char));
 }
 
-export function printInvoice(invoice: PrintableInvoice) {
-  if (typeof window === 'undefined') return;
+export function printInvoice(invoice: PrintableInvoice): boolean {
+  if (typeof window === 'undefined') return false;
 
   const popup = window.open('', '_blank', 'width=760,height=900');
-  if (!popup) return;
+  if (!popup) return false;
 
   const itemRows = (invoice.invoice_items ?? []).map((item) => `
     <tr>
@@ -47,6 +47,7 @@ export function printInvoice(invoice: PrintableInvoice) {
     <table><thead><tr><th>Item</th><th class="center">Qty</th><th class="amount">Unit price</th><th class="amount">Amount</th></tr></thead><tbody>${itemRows}</tbody></table>
     <section class="totals"><div class="total-row"><span>Subtotal</span><span>${escapeHtml(formatLKR(invoice.subtotal))}</span></div>${invoice.discount_amount > 0 ? `<div class="total-row"><span>Discount</span><span>− ${escapeHtml(formatLKR(invoice.discount_amount))}</span></div>` : ''}<div class="total-row"><span>Tax</span><span>${escapeHtml(formatLKR(invoice.tax_amount))}</span></div><div class="total-row grand"><span>Total</span><span>${escapeHtml(formatLKR(invoice.total))}</span></div><div class="total-row"><span>Paid</span><span>${escapeHtml(formatLKR(invoice.paid_amount))}</span></div><div class="total-row"><span>Balance</span><span>${escapeHtml(formatLKR(invoice.balance))}</span></div></section>
     <footer class="footer">Thank you for choosing Haya Foods.</footer>
-  </main><script>window.onload = () => window.print();</script></body></html>`);
+  </main><script>window.onload = function () { setTimeout(function () { window.focus(); window.print(); }, 250); };</script></body></html>`);
   popup.document.close();
+  return true;
 }

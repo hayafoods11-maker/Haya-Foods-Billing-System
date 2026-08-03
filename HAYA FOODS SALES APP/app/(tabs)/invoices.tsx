@@ -51,7 +51,8 @@ export default function InvoicesScreen() {
   const recordPayment = async () => {
     if (!selected) return;
     const amt = Number(payAmount);
-    if (!amt || amt <= 0) return;
+    if (!amt || amt <= 0) { setError('Enter a valid payment amount.'); return; }
+    if (amt > Number(selected.balance)) { setError('Payment cannot be more than the remaining balance.'); return; }
     const newPaid = Number(selected.paid_amount) + amt;
     const newBal = Math.max(0, Number(selected.balance) - amt);
     const status = newBal <= 0.01 ? 'paid' : 'partial';
@@ -98,6 +99,13 @@ export default function InvoicesScreen() {
       const a = document.createElement('a');
       a.href = url; a.download = `${inv.invoice_number}.csv`; a.click();
       URL.revokeObjectURL(url);
+    }
+  };
+
+  const handlePrint = (invoice: NonNullable<typeof selected>) => {
+    setPrinterMessage(null);
+    if (!printInvoice(invoice)) {
+      setPrinterMessage('Your browser blocked the invoice window. Allow pop-ups for this app, then tap Print Invoice again.');
     }
   };
 
@@ -187,7 +195,7 @@ export default function InvoicesScreen() {
               </View>
 
               <View style={styles.actionRow}>
-                <Button title="Print Invoice" onPress={() => printInvoice(selected)} style={{ flex: 1 }} />
+                <Button title="Print Invoice" onPress={() => handlePrint(selected)} style={{ flex: 1 }} />
                 <Button title="Export" variant="outline" onPress={() => exportInvoice(selected)} style={{ flex: 1 }} />
                 {canRecordPayment && selected.payment_status !== 'paid' && (
                   <Button title="Record Payment" variant="gold" onPress={() => setShowPay(true)} style={{ flex: 1 }} />
