@@ -149,6 +149,8 @@ function ProductForm({ visible, product, categories, onClose, onSaved }: {
   const [categoryId, setCategoryId] = useState('');
   const [unit, setUnit] = useState('pcs');
   const [sellingPrice, setSellingPrice] = useState('');
+  const [caseSize, setCaseSize] = useState('1');
+  const [casePrice, setCasePrice] = useState('');
   const [costPrice, setCostPrice] = useState('');
   const [stock, setStock] = useState('');
   const [reorderLevel, setReorderLevel] = useState('');
@@ -163,6 +165,8 @@ function ProductForm({ visible, product, categories, onClose, onSaved }: {
       setCategoryId(product?.category_id ?? categories[0]?.id ?? '');
       setUnit(product?.unit ?? 'pcs');
       setSellingPrice(String(product?.selling_price ?? ''));
+      setCaseSize(String(product?.case_size ?? '1'));
+      setCasePrice(String(product?.case_price ?? ''));
       setCostPrice(String(product?.cost_price ?? ''));
       setStock(String(product?.stock ?? '0'));
       setReorderLevel(String(product?.reorder_level ?? '0'));
@@ -181,6 +185,8 @@ function ProductForm({ visible, product, categories, onClose, onSaved }: {
       category_id: categoryId || null,
       unit,
       selling_price: Number(sellingPrice) || 0,
+      case_size: Math.max(1, Number(caseSize) || 1),
+      case_price: Number(casePrice) || 0,
       cost_price: Number(costPrice) || 0,
       stock: Number(stock) || 0,
       reorder_level: Number(reorderLevel) || 0,
@@ -220,6 +226,10 @@ function ProductForm({ visible, product, categories, onClose, onSaved }: {
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Input label="Unit" value={unit} onChangeText={setUnit} flex />
               <Input label="Selling Price" value={sellingPrice} onChangeText={setSellingPrice} keyboardType="numeric" flex />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Input label="Items per Case" value={caseSize} onChangeText={setCaseSize} keyboardType="numeric" flex />
+              <Input label="Case Price" value={casePrice} onChangeText={setCasePrice} keyboardType="numeric" flex />
             </View>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Input label="Cost Price" value={costPrice} onChangeText={setCostPrice} keyboardType="numeric" flex />

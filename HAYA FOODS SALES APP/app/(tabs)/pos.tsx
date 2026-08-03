@@ -25,6 +25,7 @@ import { printInvoice } from '@/lib/printInvoice';
 interface CartLine {
   product: ProductWithCategory;
   qty: number;
+  saleUnit: 'single' | 'case';
 }
 
 const BREAKPOINT = 768;
@@ -85,36 +86,41 @@ export default function POSScreen() {
     return customers.filter((c) => c.name.toLowerCase().includes(q) || (c.phone ?? '').includes(q));
   }, [customers, customerQuery]);
 
-  const addToCart = (p: ProductWithCategory) => {
+  const addToCart = (p: ProductWithCategory, saleUnit: CartLine['saleUnit'] = 'single') => {
     if (p.stock <= 0) {
       setError(`${p.name} is out of stock.`);
       return;
     }
     setCart((c) => {
-      const ex = c.find((l) => l.product.id === p.id);
+      const ex = c.find((l) => l.product.id === p.id && l.saleUnit === saleUnit);
+      const caseSize = saleUnit === 'case' ? p.case_size : 1;
       if (ex) {
-        if (ex.qty >= p.stock) {
+        const alreadyInCart = c.filter((line) => line.product.id === p.id).reduce((sum, line) => sum + line.qty * (line.saleUnit === 'case' ? p.case_size : 1), 0);
+        if (alreadyInCart + caseSize > p.stock) {
           setError(`Only ${p.stock} ${p.unit} of ${p.name} is available.`);
           return c;
         }
-        return c.map((l) => (l.product.id === p.id ? { ...l, qty: l.qty + 1 } : l));
+        return c.map((l) => (l.product.id === p.id && l.saleUnit === saleUnit ? { ...l, qty: l.qty + 1 } : l));
       }
-      return [...c, { product: p, qty: 1 }];
+      if (caseSize > p.stock) { setError(`Only ${p.stock} ${p.unit} of ${p.name} is available.`); return c; }
+      return [...c, { product: p, qty: 1, saleUnit }];
     });
     setSuccess(null);
   };
 
-  const changeQty = (id: string, delta: number) => {
+  const changeQty = (id: string, saleUnit: CartLine['saleUnit'], delta: number) => {
     setCart((c) =>
       c
-        .map((l) => (l.product.id === id ? { ...l, qty: Math.min(l.product.stock, Math.max(0, l.qty + delta)) } : l))
+        .map((l) => (l.product.id === id && l.saleUnit === saleUnit ? { ...l, qty: Math.max(0, l.qty + delta) } : l))
         .filter((l) => l.qty > 0)
     );
   };
 
-  const removeLine = (id: string) => setCart((c) => c.filter((l) => l.product.id !== id));
+  const removeLine = (id: string, saleUnit: CartLine['saleUnit']) => setCart((c) => c.filter((l) => l.product.id !== id || l.saleUnit !== saleUnit));
 
-  const subtotal = cart.reduce((s, l) => s + l.product.selling_price * l.qty, 0);
+  const unitPrice = (line: CartLine) => line.saleUnit === 'case' ? line.product.case_price : line.product.selling_price;
+  const stockQuantity = (line: CartLine) => line.qty * (line.saleUnit === 'case' ? line.product.case_size : 1);
+  const subtotal = cart.reduce((s, l) => s + unitPrice(l) * l.qty, 0);
   const discount = (subtotal * (Number(discountPct) || 0)) / 100;
   const taxable = subtotal - discount;
   const tax = (taxable * (settings?.tax_percentage ?? 0)) / 100;
@@ -128,7 +134,7 @@ export default function POSScreen() {
     const { data: currentProducts, error: stockError } = await supabase.from('products').select('id, name, stock').in('id', cart.map((line) => line.product.id));
     if (stockError) throw stockError;
     const currentStock = new Map((currentProducts ?? []).map((product) => [product.id, product]));
-    const unavailable = cart.find((line) => Number(currentStock.get(line.product.id)?.stock ?? 0) < line.qty);
+    const unavailable = cart.find((line) => Number(currentStock.get(line.product.id)?.stock ?? 0) < stockQuantity(line));
     if (unavailable) throw new Error(`Not enough stock for ${unavailable.product.name}. Refresh and try again.`);
     const prefix = settings?.invoice_prefix ?? 'INV';
     const invNo = `${prefix}-${Date.now().toString().slice(-6)}`;
@@ -156,11 +162,11 @@ export default function POSScreen() {
     const orderItems = cart.map((l) => ({
       order_id: orderId,
       product_id: l.product.id,
-      name: l.product.name,
+      name: `${l.product.name}${l.saleUnit === 'case' ? ` (Case of ${l.product.case_size})` : ''}`,
       quantity: l.qty,
-      unit_price: l.product.selling_price,
+      unit_price: unitPrice(l),
       discount_amount: 0,
-      line_total: l.product.selling_price * l.qty,
+      line_total: unitPrice(l) * l.qty,
     }));
     const { error: orderItemsError } = await supabase.from('order_items').insert(orderItems);
     if (orderItemsError) throw orderItemsError;
@@ -188,11 +194,11 @@ export default function POSScreen() {
     const invoiceItems = cart.map((l) => ({
       invoice_id: invData.id,
       product_id: l.product.id,
-      name: l.product.name,
+      name: `${l.product.name}${l.saleUnit === 'case' ? ` (Case of ${l.product.case_size})` : ''}`,
       quantity: l.qty,
-      unit_price: l.product.selling_price,
+      unit_price: unitPrice(l),
       discount_amount: 0,
-      line_total: l.product.selling_price * l.qty,
+      line_total: unitPrice(l) * l.qty,
     }));
     const { error: invoiceItemsError } = await supabase.from('invoice_items').insert(invoiceItems);
     if (invoiceItemsError) throw invoiceItemsError;
@@ -200,7 +206,7 @@ export default function POSScreen() {
     const txs = cart.map((l) => ({
       product_id: l.product.id,
       type: 'sale' as const,
-      quantity: l.qty,
+      quantity: stockQuantity(l),
       reference: ordNo,
       created_by: staff?.id ?? null,
     }));
@@ -262,7 +268,8 @@ export default function POSScreen() {
       contentContainerStyle={{ padding: 12, gap: 10 }}
       renderItem={({ item }) => (
         <Pressable
-          onPress={() => addToCart(item)}
+          onPress={() => addToCart(item, 'single')}
+          onLongPress={() => item.case_size > 1 && item.case_price > 0 && addToCart(item, 'case')}
           style={({ pressed }) => [styles.productCard, pressed && { opacity: 0.8 }]}
         >
           <Text style={styles.prodName} numberOfLines={2}>{item.name}</Text>
@@ -273,6 +280,7 @@ export default function POSScreen() {
               <Text style={[styles.stockTagText, { color: item.stock <= item.reorder_level ? theme.colors.error : theme.colors.primary[700] }]}>{item.stock}</Text>
             </View>
           </View>
+          {item.case_size > 1 && item.case_price > 0 && <Text style={styles.caseHint}>Tap: single · Hold: case of {item.case_size} ({formatLKR(item.case_price)})</Text>}
         </Pressable>
       )}
       ListEmptyComponent={<Empty title="No products found" subtitle="Try a different search." />}
@@ -322,20 +330,20 @@ export default function POSScreen() {
           <Empty title="Cart is empty" subtitle="Tap a product to add it." />
         ) : (
           cart.map((l) => (
-            <View key={l.product.id} style={styles.cartLine}>
+            <View key={`${l.product.id}-${l.saleUnit}`} style={styles.cartLine}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.lineName} numberOfLines={1}>{l.product.name}</Text>
-                <Text style={styles.linePrice}>{formatLKR(l.product.selling_price)}</Text>
+                <Text style={styles.linePrice}>{l.saleUnit === 'case' ? `Case of ${l.product.case_size} · ` : ''}{formatLKR(unitPrice(l))}</Text>
               </View>
               <View style={styles.qtyRow}>
-                <Pressable onPress={() => changeQty(l.product.id, -1)} style={styles.qtyBtn}>
+                <Pressable onPress={() => changeQty(l.product.id, l.saleUnit, -1)} style={styles.qtyBtn}>
                   <Minus size={14} color={theme.colors.text} />
                 </Pressable>
                 <Text style={styles.qtyText}>{l.qty}</Text>
-                <Pressable onPress={() => changeQty(l.product.id, 1)} style={styles.qtyBtn}>
+                <Pressable onPress={() => changeQty(l.product.id, l.saleUnit, 1)} style={styles.qtyBtn}>
                   <Plus size={14} color={theme.colors.text} />
                 </Pressable>
-                <Pressable onPress={() => removeLine(l.product.id)} style={styles.trashBtn}>
+                <Pressable onPress={() => removeLine(l.product.id, l.saleUnit)} style={styles.trashBtn}>
                   <Trash2 size={14} color={theme.colors.error} />
                 </Pressable>
               </View>
@@ -520,6 +528,7 @@ const styles = StyleSheet.create({
   prodSub: { fontSize: 11, color: theme.colors.textMuted, marginTop: 2 },
   prodFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
   prodPrice: { fontSize: 14, fontWeight: '700', color: theme.colors.primary[700] },
+  caseHint: { fontSize: 10, color: theme.colors.info, fontWeight: '600', marginTop: 6 },
   stockTag: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   stockTagText: { fontSize: 11, fontWeight: '700' },
   cartHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border },
