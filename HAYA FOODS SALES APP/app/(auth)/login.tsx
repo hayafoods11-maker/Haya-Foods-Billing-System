@@ -252,7 +252,7 @@ export default function LoginScreen() {
               style={{ alignSelf: 'center', marginTop: 16 }}
             >
               <Text style={styles.switch}>
-                {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+                {mode === 'login' ? 'Create the first Admin account' : 'Already have an account? Sign in'}
               </Text>
             </Pressable>
           ) : (
