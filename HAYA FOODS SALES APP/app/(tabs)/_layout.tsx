@@ -30,11 +30,12 @@ export default function TabsLayout() {
           backgroundColor: theme.colors.white,
           borderTopColor: theme.colors.border,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 6,
-          paddingTop: 6,
+          height: 66,
+          paddingBottom: 8,
+          paddingTop: 8,
+          ...theme.shadows.md,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
         tabBarIconStyle: { marginBottom: 2 },
       }}
     >

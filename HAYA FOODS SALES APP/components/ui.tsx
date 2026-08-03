@@ -28,7 +28,7 @@ export function ScreenScroll({
   return (
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={{ padding: theme.spacing.md, ...contentContainerStyle }}
+      contentContainerStyle={{ padding: theme.spacing.md, paddingBottom: theme.spacing.xxl, ...contentContainerStyle }}
       refreshControl={
         onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} /> : undefined
       }
@@ -46,7 +46,7 @@ export function Card({ children, style, onPress }: { children: ReactNode; style?
         onPress={onPress}
         style={({ pressed }) => [
           { backgroundColor: theme.colors.card, borderRadius: theme.radius.lg, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.border, ...theme.shadows.sm },
-          pressed && { opacity: 0.85 },
+          pressed && { opacity: 0.9, transform: [{ scale: 0.99 }] },
           style,
         ]}
       >
@@ -94,8 +94,9 @@ export function Button({ title, onPress, variant = 'primary', disabled, loading,
       style={({ pressed }) => [
         {
           backgroundColor: bg,
-          borderRadius: theme.radius.md,
-          paddingVertical: 14,
+          borderRadius: theme.radius.lg,
+          minHeight: 50,
+          paddingVertical: 13,
           paddingHorizontal: 20,
           alignItems: 'center',
           flexDirection: 'row',
@@ -113,7 +114,7 @@ export function Button({ title, onPress, variant = 'primary', disabled, loading,
       {loading ? (
         <ActivityIndicator color={fg} size="small" />
       ) : (
-        <Text style={{ color: fg, fontSize: 16, fontWeight: '600' }}>{title}</Text>
+        <Text style={{ color: fg, fontSize: 16, fontWeight: '700' }}>{title}</Text>
       )}
     </Pressable>
   );
