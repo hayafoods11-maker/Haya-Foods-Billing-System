@@ -56,6 +56,7 @@ export default function TabsLayout() {
 
       {/* Hide tab bar entries for screens not in this role's list */}
       <Tabs.Screen name="invoices" options={{ href: visibleNames.has('invoices') ? undefined : null, headerShown: false }} />
+      <Tabs.Screen name="orders" options={{ href: null, headerShown: false }} />
       <Tabs.Screen name="inventory" options={{ href: visibleNames.has('inventory') ? undefined : null, headerShown: false }} />
       <Tabs.Screen name="reports" options={{ href: visibleNames.has('reports') ? undefined : null, headerShown: false }} />
       <Tabs.Screen name="settings" options={{ href: visibleNames.has('settings') ? undefined : null, headerShown: false }} />

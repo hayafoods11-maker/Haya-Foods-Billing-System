@@ -141,7 +141,7 @@ export default function Dashboard() {
             <SectionTitle action={<QuickPOS />}>Quick Actions</SectionTitle>
             <View style={styles.quickRow}>
               <QuickAction label="New Bill" icon={<Plus size={20} color={theme.colors.white} />} onPress={() => router.push('/pos')} tint={theme.colors.primary[700]} />
-              <QuickAction label="Orders" icon={<ShoppingBag size={20} color={theme.colors.white} />} onPress={() => router.push('/orders')} tint={theme.colors.info} />
+              <QuickAction label="Sales" icon={<Receipt size={20} color={theme.colors.white} />} onPress={() => router.push('/sales')} tint={theme.colors.info} />
               <QuickAction label="Customers" icon={<TrendingUp size={20} color={theme.colors.white} />} onPress={() => router.push('/customers')} tint={theme.colors.gold[500]} />
               <QuickAction label="Reports" icon={<FileText size={20} color={theme.colors.white} />} onPress={() => router.push('/reports')} tint={theme.colors.neutral[700]} />
               {(staff?.role === 'admin' || staff?.role === 'manager') && (
@@ -152,7 +152,7 @@ export default function Dashboard() {
         )}
 
         <View style={{ marginTop: 16 }}>
-          <SectionTitle action={<ChevronLink onPress={() => router.push('/orders')} />}>Pending Orders</SectionTitle>
+          <SectionTitle action={<ChevronLink onPress={() => router.push('/sales')} />}>Pending Orders</SectionTitle>
           {pendingOrders.length === 0 ? (
             <Empty title="No pending orders" subtitle="All caught up." />
           ) : (
